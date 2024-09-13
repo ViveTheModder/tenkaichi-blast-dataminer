@@ -1,5 +1,5 @@
 package cmd;
-//Tenkaichi Blast Dataminer v1.0 by ViveTheModder
+//Tenkaichi Blast Dataminer v1.1 by ViveTheModder
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
@@ -9,224 +9,119 @@ import java.util.Scanner;
 public class MainApp 
 {
 	//flags are in this order: isBlocked, isBoosted, duringMPM, duringBlastCombo
-	static boolean[] blastDamageFlags = new boolean[4];
+	static File charaInfo = new File("./csv/chara-health.csv");
 	static File list; //currently loaded skill list
-	static final int CHARA_COUNT = 161;
-	static String[] blastNames = new String[5];
+	static final int CHARA_COUNT=161;
+	static int charaIndex=0;
+	static int targetID=-1;
+	static int[] charaHealthBars = new int[CHARA_COUNT];
+	static String currArg=""; //current argument, which gets passed to the output CSV's file name
+	static String target="";  //target refers to the last column of the CSV
 	static String[] charaNames = new String[CHARA_COUNT];
 	static final String BLAST_1_PATH = "./blast1-param/";
 	static final String BLAST_2_PATH = "./blast2-param/";
 	static final String SKL_LST_PATH = "./skill-lists/";
+	static final String[] blastArgs1 = {"-b1cost","-b1hp","-b1ki","-b1span","-b1stats"};
+	static final String[] blastArgs2 = 
+	{"-b2clash","-b2cost","-b2cuts","-b2fall","-b2type","-b2giants","-b2struggle","-b2damageopp","-b2damageusr",
+	"-b2planetdes","-b2fadeopp","-b2gothrough","-b2positair","-b2positmap","-b2stepback","-b2fallafter","-b2kamehame"};
 	
-	public static boolean hasDestroyPlanetFlag(RandomAccessFile param, int blastID) throws IOException
-	{
-		short pos;
-		short[] posValues = {2,6,10};
-		if (blastID>5 || blastID<3) return false;
-		pos = posValues[blastID-3];
-		
-		param.seek(pos);
-		byte flagset = param.readByte();
-		if ((flagset & 0x20)==0x20) return true;
-		return false;
-	}
-	public static boolean hasBeamStruggleFlag(RandomAccessFile param, int blastID) throws IOException
-	{
-		short pos;
-		short[] posValues = {1,5,9};
-		if (blastID>5 || blastID<3) return false;
-		pos = posValues[blastID-3];
-		
-		param.seek(pos);
-		byte flagset = param.readByte();
-		if ((flagset & 1)!=1) return true;
-		return false;
-	}
-	public static boolean isStackable(RandomAccessFile param, int blastID) throws IOException
-	{
-		short pos;
-		if (blastID>2) return false;
-		else if (blastID==2) pos=13;
-		else if (blastID==1) pos=9;
-		else return false;
-		
-		param.seek(pos);
-		byte flagset = param.readByte();
-		if ((flagset & 1)==1) return true;
-		return false;
-	}
-	public static boolean isBlastRush(byte blastType)
-	{
-		if (blastType==4) return true;
-		if (blastType==6) return true;
-		return false;
-	}
-	public static byte getBlastType(RandomAccessFile param, int blastID) throws IOException
-	{
-		short pos;
-		short[] posValues = {318,319,320};
-		if (blastID>5 || blastID<3) return 0;
-		pos = posValues[blastID-3];
-		
-		param.seek(pos);
-		return param.readByte();
-	}
-	public static float getBlastSpeed(RandomAccessFile param, int blastID) throws IOException
-	{
-		short pos;
-		short[] posValues = {508,512,516};
-		if (blastID<=0 || blastID>posValues.length) return 0;
-		
-		pos=posValues[blastID-1];
-		if (!isBlastRush(getBlastType(param,blastID))) pos-=424;
-		param.seek(pos);
-		return LittleEndian.getFloat(param.readFloat());
-	}
-	public static float getBlastDuration(RandomAccessFile param, int blastID) throws IOException
-	{
-		short pos;
-		short[] posValues = {36,40,44};
-		if (blastID>5 || blastID<3) return 0;
-		pos=posValues[blastID-1];
-		
-		param.seek(pos);
-		return LittleEndian.getFloat(param.readFloat());
-	}
-	public static int getBlastDamage(RandomAccessFile param, int blastID) throws IOException
-	{
-		short pos;
-		//order of values in array: 1st B1, 2nd B1, 1st B2, 2nd B2, Ultimate
-		short[] posValues = {140, 144, 400, 404, 408}; //array stores positions of blocked B2 damages
-		double coefficient=1;
-		if (blastID<=0 || blastID>posValues.length) return 0;
-		
-		pos=posValues[blastID-1];
-		if (!blastDamageFlags[0])
-		{
-			if (blastID>2) pos-=12;
-			else pos-=8;
-		}
-		posValues = null; //garbage collector, do your thing
-		param.seek(pos);
-		int rawDmg = LittleEndian.getInt(param.readInt());
-		int modDmg;
-		
-		short[] posValuesForHits = {64, 66, 156, 157, 158};
-		pos=posValuesForHits[blastID-1];
-		param.seek(pos);
-		
-		byte hits = param.readByte();
-		hits++; //prevents division by zero, plus a Blast must always hit
-		//return damage of single hit for Blast 1's (number of hits varies in gameplay)
-		if (blastID<=2) return getRoundedValue((int) (rawDmg/hits),10);
-		if (blastDamageFlags[1] && blastID>2) coefficient*=1.1;
-		if (blastID>2 && blastID<5)
-		{
-			if (blastDamageFlags[2]) coefficient*=1.2;
-			if (blastDamageFlags[3]) coefficient=0.3;
-		}
-		
-		if (hits==1) return getRoundedValue((int) (rawDmg*coefficient),10);
-		else
-		{
-			modDmg = (int) (getRoundedValue(rawDmg,hits*10)*coefficient);
-			return getRoundedValue(modDmg,hits*10);
-		}
-	}
-	public static int getRoundedValue(int source, int divisor)
-	{
-		if (divisor==0) return 0;
-		int remainder = source%divisor;
-		if (remainder!=0) source += (divisor-remainder);
-		return source; //source is rounded to the next multiple of divisor
-	}
-	public static short getBlastMagicValue(RandomAccessFile param, int blastID) throws IOException
-	{
-		short pos;
-		short[] posValues = {16,18,24,26,28};
-		if (blastID<=0 || blastID>posValues.length) return 0;
-		pos=posValues[blastID-1];
-		
-		param.seek(pos);
-		return LittleEndian.getShort(param.readShort());
-	}
-	public static short getBlast2ClashAdv(RandomAccessFile param, int blastID) throws IOException
-	{
-		short pos;
-		short[] posValues = {30,32,34};
-		if (blastID<=0 || blastID>posValues.length) return 0;
-		pos=posValues[blastID-1];
-		
-		param.seek(pos);
-		return LittleEndian.getShort(param.readShort());
-	}
 	public static String exportCSV(File[] paths, RandomAccessFile[] paramsB1, RandomAccessFile[] paramsB2) throws IOException
 	{
 		String output="";
-		File outputCsv = new File("out.csv");
+		File outputCsv = new File("out"+currArg+".csv");
 		FileWriter outputWriter = new FileWriter(outputCsv);
+		boolean isTargetB1 = (targetID/100)==1;
+		boolean isTargetB2 = (targetID/200)==1;
 		
-		int damage=0;
-		System.out.println("[out.csv Contents]");
-		for (int i=0; i<paths.length; i++)
+		while (charaIndex<CHARA_COUNT)
 		{
-			list = paths[i];
+			list = paths[charaIndex];
 			for (int blastID=1; blastID<=5; blastID++)
 			{	
-				if (blastID>2) damage=getBlastDamage(paramsB2[i],blastID);
-				else damage=getBlastDamage(paramsB1[i],blastID);
-				setBlastNames(blastID);
-				output+=charaNames[i]+","+blastNames[blastID-1]+","+damage+"\n";
+				if (isTargetB1 && blastID==3) break;
+				if (isTargetB2 && blastID<3) continue;
+				if (blastID>2) 
+				{
+					Blast.param = paramsB2[charaIndex];
+					setTarget(targetID,blastID);
+				}
+				else
+				{
+					Blast.param = paramsB1[charaIndex];
+					setTarget(targetID,blastID);
+				}
+				Blast.setBlastNames(blastID);
+				if (target.equals("false") || target.equals("0,0,0,0")) continue;
+				output+=charaNames[charaIndex]+","+Blast.blastNames[blastID-1]+","+target+"\n";
 			}
+			charaIndex++;
 		}
+		System.out.println("\n[out"+currArg+".csv Contents]");
 		outputWriter.write(output);
 		outputWriter.close();
 		return output;
 	}
-	public static void setBlastNames(int blastID) throws IOException
+	public static void setTarget(int targetID, int blastID) throws IOException
 	{
-		Scanner sc = new Scanner(list, "UTF-16");
-		boolean hasContinue=false;
-		int blastIndex = blastID-1;
-		while (sc.hasNextLine())
+		target="";
+		switch(targetID)
 		{
-			String line = sc.nextLine();
-			if (line.startsWith("!F*"))
-			{
-				char[] lineArray = line.toCharArray();
-				if (blastID==5 && lineArray[3]=='1') 
-				{
-					blastNames[blastIndex] = line.substring(6); break;
-				}
-				if (lineArray[3]=='0' && lineArray[4]!='0')
-				{
-					if (blastID==3) 
-					{
-						if (hasContinue) blastIndex=blastID;
-						blastNames[blastIndex] = line.substring(6); break;
-					}
-					if (blastID==4) {blastID=3; hasContinue=true; continue;}
-				}
-				if (lineArray[3]=='0' && lineArray[4]=='0')
-				{
-					if (blastID==1)
-					{
-						if (hasContinue) blastIndex=blastID;
-						blastNames[blastIndex] = line.substring(6); break;
-					}
-					if (blastID==2) {blastID=1; hasContinue=true; continue;}
-				}
-			}
+			//general Blast methods
+			case 000: target+=Blast.getBlastDamage(blastID); break;
+			case 001: target+=Blast.getBlastDuration(blastID); break;
+			case 002: target+=Blast.getBlastMagicValue(blastID); break;
+			case 003: target+=Blast.getBlastSpeed(blastID); break;
+			case 004: target+=Blast.isUnblockable(blastID); break;
+			//Blast 1 methods
+			case 100: target+=Blast.getBlast1Cost(blastID); break;
+			case 101: target+=Blast.getBlast1HealthGain(blastID, charaIndex); break;
+			case 102: target+=Blast.getBlast1KiGain(blastID); break;
+			case 103: target+=Blast.getBlast1LifespanType(blastID); break;
+			case 104: target+=Blast.getBlast1Stats(blastID); break;
+			//Blast 2 methods
+			case 200: target+=Blast.getBlast2ClashAdv(blastID); break;
+			case 201: target+=Blast.getBlast2Cost(blastID); break;
+			case 202: target+=Blast.getBlast2CutsceneCnt(blastID); break;
+			case 203: target+=Blast.getBlast2FallType(blastID); break;
+			case 204: target+=Blast.blastTypes[Blast.getBlast2Type(blastID)]; break;
+			case 205: target+=Blast.affectsGiants(blastID); break;
+			case 206: target+=Blast.canBeamStruggle(blastID); break;
+			case 207: target+=Blast.canDamageOpponent(blastID); break;
+			case 208: target+=Blast.canDamageUser(blastID); break;
+			case 209: target+=Blast.canDestroyPlanet(blastID); break;
+			case 210: target+=Blast.canFadeOpponentAfterBlast2(blastID); break;
+			case 211: target+=Blast.canGoThroughOpponent(blastID); break;
+			case 212: target+=Blast.canSetPositionToAir(blastID); break;
+			case 213: target+=Blast.canSetPositionToMapCenter(blastID); break;
+			case 214: target+=Blast.canStepOutBeforeBlast2(blastID); break;
+			case 215: target+=Blast.canUserFallAfterBlast2(blastID); break;
+			case 216: target+=Blast.isBlast2Kamehameha(blastID); break;
+			default: break;
 		}
-		sc.close();
 	}
-	public static void setCharaNames(File names) throws IOException
+	public static void setCharaHealthBars(File charaInfo) throws IOException
 	{
-		Scanner sc = new Scanner(names);
+		Scanner sc = new Scanner(charaInfo);
+		sc.useDelimiter(",");
 		int rowCnt=0;
 		while (sc.hasNextLine())
 		{
-			String name = sc.nextLine();
+			sc.next(); //skip character name
+			charaHealthBars[rowCnt]=Integer.parseInt(sc.nextLine());
+			rowCnt++;
+		}
+		sc.close();
+	}
+	public static void setCharaNames(File charaInfo) throws IOException
+	{
+		Scanner sc = new Scanner(charaInfo);
+		sc.useDelimiter(",");
+		int rowCnt=0;
+		while (sc.hasNextLine())
+		{
+			String name = sc.next();
+			sc.nextLine(); //skip character health
 			charaNames[rowCnt]=name;
 			rowCnt++;
 		}
@@ -235,8 +130,7 @@ public class MainApp
 	public static void main(String[] args) throws IOException 
 	{
 		double start = System.currentTimeMillis();
-		File names = new File("chara-names.txt");
-		setCharaNames(names);
+		setCharaNames(charaInfo);
 		File folder = new File(BLAST_2_PATH);
 		File[] paths = folder.listFiles();
 		
@@ -264,23 +158,92 @@ public class MainApp
 		folder = new File(SKL_LST_PATH);
 		paths = folder.listFiles();
 		
-		System.out.println("Export and display a CSV file showing the damage of all Blasts in Budokai Tenkaichi 3.\n"
-		+ "The program has other methods, but as a proof of concept, only these damage-related arguments can be used:\n"
-		+ "-blk, -block -----> Show blocked Blast damage only\n" + "-bst, -boost -----> Show boosted Blast 2 damage (10% more)\n"
-		+ "-mpm, -sparking --> Show boosted damage (20% more) when the Blast 2 is used in MPM/Sparking (MAX Power Mode)\n"
-		+ "-cmb, -combo -----> Show damage when the Blast 2 is (70% less)\n");
-		if (args.length>0) //check for command line arguments
+		String helpText = "Export and display a CSV file showing the damage of all Blasts in Budokai Tenkaichi 3.\n"
+		+ "Here is a list of all the arguments that can be used. Use -h or -help to print this out again.\n\n"
+		+ "[General Blast Arguments]\n" + "* -blid, -magic --> Display the magic value (or Blast Identifier) of every Blast.\n"
+		+ "* -dmg, -damage --> Display the damage of every Blast. Additional arguments can be used in any order, such as:\n"
+		+ "** blk, block ----> Show blocked Blast damage only\n" + "** bst, boost ----> Show boosted Blast 2 damage (10% more).\n"
+		+ "** mpm, spark ----> Show boosted damage (20% more) when the Blast 2 is used in MPM/Sparking (MAX Power Mode).\n"
+		+ "** cmb, combo ----> Show damage (70% less) when the Blast 2 is used during a Blast Combo. \n"
+		+ "* -dur, -length --> Display the duration/length of every Blast.\n"
+		+ "* -spd, -speed ---> Display the speed of every Blast.\n" 
+		+ "* -ub, -unblock --> Display every Blast that is unblockable.\n" + "[Blast 1 Arguments]\n"
+		+ "* -b1cost --------> Display the number of Blast Stocks consumed upon usage of every Blast 1.\n"
+		+ "* -b1hp ----------> Display the number of Health Bars gained upon usage of every Blast 1.\n"
+		+ "* -b1ki ----------> Display the number of Ki Bars gained upon usage of every Blast 1.\n"
+		+ "* -b1span --------> Display how long (in seconds) the effects of every Blast 1 last.\n"
+		+ "* -b1stats -------> Display the stats (Ability Modifiers) of every Blast 1.\n" + "[Blast 2 Arguments]\n"
+		+ "* -b2clash -------> Display the Clash Advantage of every Blast 2.\n"
+		+ "* -b2cost --------> Display the number of Ki Bars consumed upon usage of every Blast 2.\n"
+		+ "* -b2cuts --------> Display the number of cutscene animations for every Blast 2.\n"
+		+ "* -b2fall --------> Display the fall type identifier of every Blast 2.\n"
+		+ "* -b2type --------> Display every Blast 2's type.\n"
+		+ "* -b2giants ------> Display every Blast 2 that affects giant characters.\n"
+		+ "* -b2struggle ----> Display every Blast 2 that can perform a Beam Clash.\n"
+		+ "* -b2damageopp ---> Display every Blast 2 that can damage the opponent's costume.\n"
+		+ "* -b2damageusr ---> Display every Blast 2 that can damage the player's costume.\n"
+		+ "* -b2planetdes ---> Display every Blast 2 that can blow up the planet.\n"
+		+ "* -b2fallafter ---> Display every Blast 2 that makes the opponent fall after the Blast 2's execution.\n"
+		+ "* -b2fadeopp -----> Display every Blast 2 that makes the opponent fade if the Blast 2 has killed them.\n"
+		+ "* -b2gothrough ---> Display every Blast 2 that goes through the opponent.\n"
+		+ "* -b2kamehame ----> Display every Blast 2 that is affected by the Fierce God Z-Item (only Kamehamehas).\n"
+		+ "* -b2positair ----> Display every Blast 2 that sets the opponent's position in the air.\n"
+		+ "* -b2positmap ----> Display every Blast 2 that sets the player's position to the map center.\n"
+		+ "* -b2stepback ----> Display every Blast 2 that makes the user step back before performing it.";
+		System.out.println(helpText);
+		
+		if (args.length==0) //check for command line arguments
 		{
-			for (int i=0; i<args.length; i++)
+			System.out.println("An argument must be provided from the list. Use -h for help."); System.exit(1);
+		}
+		for (int i=0; i<args.length; i++)
+		{
+			if (args[0].equals("-dmg"))
 			{
-				if (args[i].equals("-block") || args[i].equals("-blk")) blastDamageFlags[0]=true;
-				if (args[i].equals("-boost") || args[i].equals("-bst")) blastDamageFlags[1]=true;
-				if (args[i].equals("-sparking") || args[i].equals("-mpm")) blastDamageFlags[2]=true;
-				if (args[i].equals("-combo") || args[i].equals("-cmb")) blastDamageFlags[3]=true;
+				targetID=0;
+				if (args.length==1) break;
+				for (int j=1; j<args.length; j++) //damage arguments can be put in any order
+				{
+					if (args[j].equals("block") || args[i].equals("blk")) Blast.blastDamageFlags[0]=true;
+					if (args[j].equals("boost") || args[i].equals("bst")) Blast.blastDamageFlags[1]=true;
+					if (args[j].equals("spark") || args[i].equals("mpm")) Blast.blastDamageFlags[2]=true;
+					if (args[j].equals("combo") || args[i].equals("cmb")) Blast.blastDamageFlags[3]=true;
+				}
 			}
 		}
-		System.out.println(exportCSV(paths, paramsB1, paramsB2));
 		
+		switch(args[0]) //only used for general cases
+		{
+			case "-blid":
+			case "-magic": targetID=2; break;
+			case "-dur":
+			case "-length": targetID=1; break;
+			case "-spd":
+			case "-speed": targetID=3; break;
+			case "-ub":
+			case "-unblock": targetID=4; break;
+			default: targetID=-1; break;
+		}
+		//only used for Blast 1 and Blast 2 cases
+		for (int i=0; i<blastArgs2.length; i++)
+		{
+			if (i<blastArgs1.length)
+			{
+				if (args[0].equals(blastArgs1[i])) targetID=100+i;
+				if (args[0].equals(blastArgs2[i])) targetID=200+i;
+			}
+			else
+			{
+				if (args[0].equals(blastArgs2[i])) targetID=200+i;
+			}
+		}
+		if (targetID==-1)
+		{
+			System.out.println("Invalid argument. Use -h for help."); System.exit(2);
+		}
+		
+		currArg = args[0];
+		System.out.println(exportCSV(paths, paramsB1, paramsB2));
 		double end = System.currentTimeMillis();
 		System.out.println("Time: "+(end-start)/1000+" s");
 	}
