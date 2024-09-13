@@ -190,15 +190,18 @@ public class MainApp
 		+ "* -b2positair ----> Display every Blast 2 that sets the opponent's position in the air.\n"
 		+ "* -b2positmap ----> Display every Blast 2 that sets the player's position to the map center.\n"
 		+ "* -b2stepback ----> Display every Blast 2 that makes the user step back before performing it.";
-		System.out.println(helpText);
 		
 		if (args.length==0) //check for command line arguments
 		{
 			System.out.println("An argument must be provided from the list. Use -h for help."); System.exit(1);
 		}
+		if (args[0].equals("-h"))
+		{
+			System.out.println(helpText); System.exit(0);
+		}
 		for (int i=0; i<args.length; i++)
 		{
-			if (args[0].equals("-dmg"))
+			if (args[0].equals("-dmg") || args[0].equals("-damage"))
 			{
 				targetID=0;
 				if (args.length==1) break;
@@ -222,7 +225,7 @@ public class MainApp
 			case "-speed": targetID=3; break;
 			case "-ub":
 			case "-unblock": targetID=4; break;
-			default: targetID=-1; break;
+			default: break;
 		}
 		//only used for Blast 1 and Blast 2 cases
 		for (int i=0; i<blastArgs2.length; i++)
